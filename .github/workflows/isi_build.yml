@@ -1,0 +1,126 @@
+name: '🔧 ISI Firmware Build'
+
+on:
+  push:
+    branches:
+      - 'isi/main'
+      - 'feature/**'
+    paths:
+      - 'boards/ISI_N6/**'
+      - 'modules/isi/**'
+      - 'scripts/isi/**'
+      - 'ports/stm32/**'
+      - 'common/**'
+      - 'Makefile'
+      - 'modules/micropython.mk'
+      - '.github/workflows/isi_build.yml'
+
+  pull_request:
+    branches:
+      - 'isi/main'
+
+jobs:
+  build-isi-firmware:
+    name: 'ISI_N6 Firmware'
+    runs-on: ubuntu-24.04
+    steps:
+    - name: '⏳ Checkout repository'
+      uses: actions/checkout@v4
+      with:
+        submodules: false
+
+    - name: '🧱 Update submodules'
+      run: source tools/ci.sh && ci_update_submodules
+
+    - name: '♻ Cache SDK'
+      uses: actions/cache@v4
+      id: sdk-cache
+      with:
+        path: ~/openmv-sdk-1.1.0
+        key: openmv-sdk-1.1.0-linux-x86_64
+
+    - name: '🛠 Install SDK'
+      if: steps.sdk-cache.outputs.cache-hit != 'true'
+      run: source tools/ci.sh && ci_install_sdk
+
+    - name: '🏗 Build mpy-cross'
+      run: make -j$(nproc) -C lib/micropython/mpy-cross
+
+    - name: '🏗 Build ISI_N6 Firmware'
+      run: make -j$(nproc) TARGET=ISI_N6
+
+    - name: '📦 Package artifacts'
+      run: |
+        mkdir -p artifacts
+        cp build/bin/firmware.bin artifacts/isi_n6_firmware.bin
+        cp build/bin/firmware.elf artifacts/isi_n6_firmware.elf
+        cp build/bin/bootloader.bin artifacts/isi_n6_bootloader.bin 2>/dev/null || true
+        cp build/bin/bootloader.elf artifacts/isi_n6_bootloader.elf 2>/dev/null || true
+        cp build/bin/openmv.bin artifacts/isi_n6_combined.bin 2>/dev/null || true
+        cp build/bin/openmv.dfu artifacts/isi_n6_combined.dfu 2>/dev/null || true
+        cp build/bin/romfs*.img artifacts/ 2>/dev/null || true
+        echo "BUILD_SHA=$(git rev-parse --short HEAD)" > artifacts/build_info.txt
+        echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> artifacts/build_info.txt
+        echo "TARGET=ISI_N6" >> artifacts/build_info.txt
+
+    - name: '📏 Firmware size report'
+      run: |
+        SDK_DIR="${HOME}/openmv-sdk-1.1.0"
+        export PATH="${SDK_DIR}/gcc/bin:${PATH}"
+        arm-none-eabi-size --format=SysV build/bin/firmware.elf | tee artifacts/size_report.txt
+
+    - name: '⬆ Upload artifacts'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ISI_N6-${{ github.sha }}
+        path: artifacts/
+        if-no-files-found: error
+        retention-days: 90
+
+  # Tagged release job
+  create-release:
+    needs: build-isi-firmware
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/isi-v')
+    permissions:
+      contents: write
+    steps:
+    - name: '⏳ Checkout repository'
+      uses: actions/checkout@v4
+      with:
+        submodules: false
+
+    - name: '↓ Download artifacts'
+      uses: actions/download-artifact@v4
+      with:
+        path: release_artifacts
+
+    - name: '📦 Package release'
+      run: |
+        cd release_artifacts/ISI_N6-*
+        zip -r ../../isi_firmware_${{ github.ref_name }}.zip .
+
+    - name: '🔥 Create release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: isi_firmware_*.zip
+        body: |
+          ## ISI Custom Firmware Release `${{ github.ref_name }}`
+
+          **Target:** OpenMV N6 (STM32N657xx / Cortex-M55)
+          **Commit:** `${{ github.sha }}`
+          **Date:** ${{ github.event.head_commit.timestamp }}
+
+          ### Included Artifacts
+          - `isi_n6_firmware.bin` — Flash via OpenMV IDE Bootloader
+          - `isi_n6_combined.dfu` — DFU image (bootloader + firmware)
+          - `romfs0.img` — ROM filesystem with ML models
+          - `size_report.txt` — Firmware memory usage
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: '🧹 Remove artifacts'
+      uses: geekyeggo/delete-artifact@v5
+      with:
+        name: ISI_N6-${{ github.sha }}
+        failOnError: false

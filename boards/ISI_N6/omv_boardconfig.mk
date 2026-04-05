@@ -1,0 +1,69 @@
+# ISI Custom Board Profile for Ranger Camera Module (OpenMV N6 Based)
+# Based on OPENMV_N6 with ISI-specific modifications.
+#
+# Copyright (c) 2026 Invictus Security Wireless, LLC.
+
+MCU=STM32N657xx
+CPU=cortex-m55
+FPU=fpv5-d16
+PORT=stm32
+SYSTEM=st/system_stm32n6
+
+# ISI-specific USB identifiers (differentiate from stock N6 0x37C5:0x1206)
+OMV_USB_VID=0x37C5
+OMV_USB_PID=0x1207
+
+# Flash/boot addresses (same as upstream N6)
+OMV_FIRM_BASE=0x70000000
+OMV_FIRM_ADDR=0x70080000
+OMV_BOOT_ADDR=0x34180400
+
+# Bootloader configuration (signed boot for STM32N6)
+OMV_BOOT_CFLAGS=-mcmse \
+                -DOMV_BOOTLOADER \
+                -DUSER_TZ_SAU_SETUP \
+                -DCFG_TUD_MAX_SPEED=OPT_MODE_HIGH_SPEED \
+                -DCFG_TUSB_RHPORT0_MODE=OPT_MODE_DEVICE
+
+OMV_BOARD_CFLAGS=-mcmse \
+                 -DOMV_NOSYS_STUBS_ENABLE=1 \
+                 -DMICROPY_HW_RUNS_FROM_EXT_FLASH=1 \
+                 -DISI_CUSTOM_BOARD=1
+
+OMV_RAMFUNC_OBJS = bdev.o xspi.o spiflash.o
+OMV_SIGN_BOOT=1
+OMV_SIGN_HDRV=2.3
+OMV_SIGN_FLAGS=0x80000000
+OMV_PROG_STLDR=MX25UM51245G_STM32N6570-NUCLEO.stldr
+OMV_JLINK_ARGS=--device STM32N657L0
+OMV_STLINK_ARGS=--extload $(OMV_PROG_STLDR)
+OMV_HSE_VALUE=48000000
+OMV_ENABLE_BL=1
+
+# Sensor enables (trimmed for ISI Ranger — no FLIR/GenX/Lepton)
+OMV_BOSON_ENABLE=0
+OMV_GENX320_ENABLE=0
+OMV_LEPTON_SDK_ENABLE=0
+OMV_USB_STACK_TINYUSB=1
+
+# MicroPython module enables (matched to ISI Ranger application)
+MICROPY_PY_CSI = 1
+MICROPY_PY_CSI_NG = 1
+MICROPY_PY_PROTOCOL = 0
+MICROPY_PY_FIR = 0
+MICROPY_PY_TOF = 0
+MICROPY_PY_IMU = 0
+MICROPY_PY_CRC = 1
+MICROPY_PY_ULAB = 1
+MICROPY_PY_DISPLAY = 0
+MICROPY_PY_TV = 0
+MICROPY_PY_AUDIO = 0
+MICROPY_PY_LWIP = 1
+MICROPY_PY_SSL = 1
+MICROPY_PY_SSL_ECDSA_SIGN_ALT = 0
+MICROPY_SSL_MBEDTLS = 1
+MICROPY_PY_NETWORK_CYW43 = 1
+MICROPY_PY_BLUETOOTH = 1
+MICROPY_BLUETOOTH_NIMBLE = 1
+MICROPY_PY_ML = 1
+MICROPY_PY_ML_STAI = 1

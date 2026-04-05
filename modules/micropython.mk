@@ -77,3 +77,6 @@ $(BUILD)/modules/py_ml.o: override CFLAGS += -finstrument-functions
 $(BUILD)/modules/py_image.o: override CFLAGS += -finstrument-functions
 $(BUILD)/modules/ulab/%.o: override CFLAGS += -finstrument-functions
 endif
+
+# ISI: Include custom module build rules (no-op if directory doesn't exist).
+-include $(OMV_MOD_DIR)/isi/micropython.mk
