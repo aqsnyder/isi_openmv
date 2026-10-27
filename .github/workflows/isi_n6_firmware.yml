@@ -1,0 +1,115 @@
+# ISI: build Ranger's OPENMV_N6 firmware.bin. See isi/README.md.
+#
+# firmware.bin only. Never a bootloader or a combined image: Ranger cameras boot through
+# kwabena's private bootloader, and a source-built one waits 1000 ms for USB on every boot.
+name: 'ISI N6 firmware'
+
+on:
+  push:
+    branches:
+      - 'isi/**'
+    tags:
+      - 'v*-isi.*'
+  pull_request:
+    branches:
+      - 'isi/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: 'Parity: shipped firmware.bin'
+    runs-on: ubuntu-24.04
+    steps:
+    - name: 'Checkout ISI scripts'
+      uses: actions/checkout@v7
+      with:
+        path: isi-src
+        submodules: false
+
+    - name: 'Cache SDK 1.6.0'
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/openmv-sdk-1.6.0
+        key: openmv-sdk-1.6.0-linux-x86_64
+
+    - name: 'Rebuild vendor/kw-add_vbx943-8c5fd65e and compare with shipped'
+      run: >-
+        isi-src/isi/scripts/parity.sh
+        --repo="${{ github.server_url }}/${{ github.repository }}.git"
+        --work="$RUNNER_TEMP/parity"
+        --out="$GITHUB_WORKSPACE/parity"
+
+    - name: 'Upload'
+      uses: actions/upload-artifact@v7
+      with:
+        name: parity-firmware
+        path: parity
+        if-no-files-found: error
+
+  firmware:
+    name: 'OPENMV_N6 firmware.bin'
+    needs: parity
+    runs-on: ubuntu-24.04
+    steps:
+    - name: 'Checkout'
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0       # full history and tags: git describe is stamped into the banner
+        filter: blob:none    # history without every old blob
+        submodules: false
+
+    - name: 'Read SDK version'
+      id: sdk-ver
+      run: echo "version=$(cat SDK_VERSION)" >> "$GITHUB_OUTPUT"
+
+    - name: 'Cache SDK'
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/openmv-sdk-${{ steps.sdk-ver.outputs.version }}
+        key: openmv-sdk-${{ steps.sdk-ver.outputs.version }}-linux-x86_64
+
+    - name: 'Submodules'
+      run: isi/scripts/submodules.sh
+
+    - name: 'Build'
+      run: isi/scripts/build.sh --out=out --ntfs-order
+
+    - name: 'Download parity build'
+      uses: actions/download-artifact@v8
+      with:
+        name: parity-firmware
+        path: parity
+
+    - name: 'Compare with shipped'
+      run: |
+        export PATH="$HOME/openmv-sdk-${{ steps.sdk-ver.outputs.version }}/gcc/bin:$PATH"
+        python3 -I isi/scripts/symdiff.py parity/firmware.elf out/firmware.elf | tee out/symdiff_vs_shipped.txt
+        {
+          echo "### OPENMV_N6 firmware.bin"
+          echo '```'
+          cat out/hashes.txt
+          python3 -I -c "import json; print(json.load(open('out/provenance.json'))['firmware']['banner'])"
+          echo '```'
+          echo "### Shipped (parity rebuild, byte-identical)"
+          echo '```'
+          cat parity/hashes.txt
+          echo '```'
+          echo "### Symbols vs shipped"
+          echo '```'
+          head -60 out/symdiff_vs_shipped.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: 'Upload'
+      uses: actions/upload-artifact@v7
+      with:
+        name: OPENMV_N6-firmware-${{ github.sha }}
+        path: out
+        if-no-files-found: error

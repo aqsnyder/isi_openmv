@@ -1,0 +1,19 @@
+#!/bin/bash
+# `find` shim used by isi/scripts/build.sh --ntfs-order.
+#
+# common/micropy.mk builds libmicropython.a from raw `find ... -name '*.o'` output and links it
+# --whole-archive, so archive member order is the code layout. NTFS returns names sorted by
+# upper-cased name; ext4 returns hash order. This re-sorts only that object listing into NTFS
+# order (pre-order walk, children sorted by upper-cased name); every other call passes through.
+for a in "$@"; do
+  if [ "$a" = "*.o" ]; then
+    /usr/bin/find "$@" | /usr/bin/python3 -I -c '
+import sys
+paths = [l.rstrip("\n") for l in sys.stdin if l.strip()]
+paths.sort(key=lambda p: tuple(c.upper() for c in p.split("/")))
+sys.stdout.write("".join(p + "\n" for p in paths))
+'
+    exit "${PIPESTATUS[0]}"
+  fi
+done
+exec /usr/bin/find "$@"
