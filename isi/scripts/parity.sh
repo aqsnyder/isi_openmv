@@ -37,8 +37,10 @@ mkdir -p "$WORK"
 git init -q "$WORK/openmv"
 cd "$WORK/openmv"
 git remote add origin "$REPO"
-git fetch -q --no-tags --filter=blob:none origin "+refs/heads/$BRANCH:refs/remotes/origin/vendor"
-git merge-base --is-ancestor "$VENDOR_SHA" origin/vendor \
+# Into FETCH_HEAD: an explicit refs/remotes/origin/vendor would collide with the automatic
+# remote-tracking update of refs/remotes/origin/vendor/<name>.
+git fetch -q --no-tags --filter=blob:none origin "refs/heads/$BRANCH"
+git merge-base --is-ancestor "$VENDOR_SHA" FETCH_HEAD \
   || { echo "error: $BRANCH does not contain $VENDOR_SHA" >&2; exit 1; }
 git checkout -q --detach "$VENDOR_SHA"
 git tag v2.0 "$V2_0_SHA"
