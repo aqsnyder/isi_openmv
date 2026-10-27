@@ -38,6 +38,7 @@ COMMON_SRC_C += \
     vospi.c \
     queue.c \
     omv_cycles.c \
+    omv_boot_marks.c \
     omv_profiler.c \
     umalloc.c \
 

@@ -90,6 +90,7 @@
 #include "omv_protocol.h"
 #include "mp_utils.h"
 #include "framebuffer.h"
+#include "omv_boot_marks.h"
 
 #include "sdram.h"
 #include "stm_xspi.h"
@@ -139,11 +140,20 @@ void NORETURN __stack_chk_fail(void) {
 int main(void) {
     bool first_soft_reset = true;
 
+    #if defined(STM32N6)
+    // SystemCoreClock still holds its HSI default here, but the CPU already runs from
+    // PLL1 (set up before this image was entered), so SysTick programmed from the
+    // default ticks 12.5x fast until it is reprogrammed. Read the real clock first.
+    SystemCoreClockUpdate();
+    #endif
+    omv_boot_mark(OMV_BOOT_MARK_MAIN);
+
     // Initialize SysTick.
     HAL_InitTick(TICK_INT_PRIORITY);
 
     // Configure PLLs, oscillators, and system/peripheral clocks
     SystemClock_Config();
+    omv_boot_mark(OMV_BOOT_MARK_CLOCKS);
 
     #if defined(MICROPY_BOARD_EARLY_INIT)
     MICROPY_BOARD_EARLY_INIT();
@@ -159,6 +169,7 @@ int main(void) {
     //  - Configure the Systick to generate an interrupt each 1 msec
     //  NOTE: The bootloader enables the CCM/DTCM memory.
     HAL_Init();
+    omv_boot_mark(OMV_BOOT_MARK_HAL);
 
     #if MICROPY_HW_SDRAM_SIZE
     if (!sdram_init()) {
@@ -195,6 +206,7 @@ int main(void) {
 
     // Re-enable IRQs (disabled by bootloader)
     __enable_irq();
+    omv_boot_mark(OMV_BOOT_MARK_IRQ);
 
 soft_reset:
     for (size_t i = 0; i < 4; i++) {
@@ -213,12 +225,15 @@ soft_reset:
 
     // Micro Python init
     mp_init();
+    omv_boot_mark(OMV_BOOT_MARK_MPINIT);
 
     // Initialise low-level sub-systems.
     #if MICROPY_PY_FIR
     py_fir_init0();
     #endif // MICROPY_PY_FIR
     uma_init();
+    // imlib_init() zeroes the DWT cycle counter (omv_cycles_init()).
+    omv_boot_marks_rebase();
     imlib_init();
     readline_init0();
     pin_init0();
@@ -278,12 +293,16 @@ soft_reset:
     pyb_usb_init0();
     #endif
 
+    omv_boot_mark(OMV_BOOT_MARK_DRIVERS);
+
     MP_STATE_PORT(pyb_stdio_uart) = NULL;
 
     #if MICROPY_PY_CSI
     // Initialize the csi.
     if (first_soft_reset) {
+        omv_boot_mark(OMV_BOOT_MARK_CSI0);
         int ret = omv_csi_init();
+        omv_boot_mark(OMV_BOOT_MARK_CSI1);
         if (ret != 0 && ret != OMV_CSI_ERROR_ISC_UNDETECTED) {
             __fatal_error("Failed to init the CSI");
         }
@@ -294,8 +313,11 @@ soft_reset:
     py_imu_init();
     #endif // MICROPY_PY_IMU
 
+    omv_boot_mark(OMV_BOOT_MARK_FROZEN);
+
     // Execute _boot.py to set up the filesystem.
     pyexec_frozen_module("_boot.py", false);
+    omv_boot_mark(OMV_BOOT_MARK_FS);
 
     // Set the USB medium to flash block device.
     pyb_usb_storage_medium = PYB_USB_STORAGE_MEDIUM_FLASH;
@@ -324,9 +346,11 @@ soft_reset:
 
     // Initialize OpenMV protocol
     omv_protocol_init_default();
+    omv_boot_mark(OMV_BOOT_MARK_USB);
 
     // Run boot.py every reset and main.py on first soft-reset
     if (pyexec_file_if_exists("boot.py") && first_soft_reset) {
+        omv_boot_mark(OMV_BOOT_MARK_MAINPY);
         pyexec_file_if_exists("main.py");
     }
 

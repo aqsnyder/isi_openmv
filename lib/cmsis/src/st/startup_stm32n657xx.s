@@ -55,6 +55,21 @@ defined in linker script */
   .weak Reset_Handler
   .type Reset_Handler, %function
 Reset_Handler:
+/* Boot marks: start the DWT cycle counter from 0 on the first instruction. Its old
+   value (left by the bootloader or a debugger) is kept in r8 for omv_boot_marks_init;
+   r8 is callee-saved and unused below, so it survives SystemInit and the copies. */
+  ldr r0, =0xE000EDFC     // DEMCR
+  ldr r1, [r0]
+  orr r1, r1, #0x01000000 // TRCENA
+  str r1, [r0]
+  ldr r0, =0xE0001000     // DWT_CTRL
+  ldr r8, [r0, #4]        // DWT_CYCCNT
+  movs r1, #0
+  str r1, [r0, #4]
+  ldr r1, [r0]
+  orr r1, r1, #1          // CYCCNTENA
+  str r1, [r0]
+
   ldr r0,=0x46028a4c     // Load target address
   ldr r1,=0xFFF          // Load the value 0x3FF into r1
   str r1,[r0]            // Store directly to memory
@@ -135,6 +150,10 @@ FillZerobss:
 LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
+
+/* Boot marks: .bss is zeroed, record the crt0 mark. */
+  mov r0, r8
+  bl omv_boot_marks_init
 
 /* Call static constructors */
 /*  bl __libc_init_array*/
